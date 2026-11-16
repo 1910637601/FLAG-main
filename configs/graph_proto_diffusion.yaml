@@ -1,0 +1,87 @@
+pipeline: train_graph_latent_diffusion
+seed: 42
+device: cuda:0
+mode: 'proto_graph_fixed'
+exp_name: proto_full
+
+data_config:
+  data_dir: /path/to/data_dir
+  gene_list_filename: hmhvg_geneformer_gene_list.txt
+  llm_embedding_dir: /path/to/foundation_gene_embedding
+  crop_size: 2048
+  stride_size: 2048
+  img_encoder_name: uni
+  feature_dir: /path/to/feature_dir
+  train_slides_list: /path/to/train_list.txt
+  valid_slides_list: /path/to/valid_list.txt
+  test_slides_list: /path/to/test_list.txt
+  dataset_name: 'graph_dataset'
+  # [FLAG-Proto] <celltype_dir>/<slide>.csv, produced by tools/prepare_celltype_prior.py (or cell2location)
+  celltype_dir: /path/to/data_dir/celltype
+
+sde_config:
+  name: 'vesde'
+  sigma_min: 0.01
+  sigma_max: 10.0
+  t_min: 0.01
+  sampler: 'proto_ode_sampler'
+
+model_config:
+  name: 'graph_dit_proto'
+  edge_dim: 1
+  node_cond_dim: 1024
+  edge_cond_dim: 2
+  d_model: 384
+  n_layers: 6
+  n_heads: 8
+  dropout: 0.1
+  edge_feat_dim: 384
+  ada_norm: False
+  use_cond_e_in_attn: False
+  d_gene: 512
+
+  hidden_dim: 384
+  num_heads: 6
+  dit_num_blocks: 12
+  encoder_layer: 8
+  projector_dim: 2048
+  z_dim: 1152
+  mlp_ratio: 4.0
+
+  # ---- FLAG-Proto ----
+  prototype_path: /path/to/data_dir/prototypes.npz
+  use_prior: True              # False -> ablation: same network/EDM preconditioning, prior mean = 0
+  detach_prior_in_dsm: True    # prior head trained only by prior/comp/lib losses
+  update_prototypes: True      # fine-tune log T around the scRNA reference
+  use_proto_gene_embed: True   # gene token += f(cell-type specificity profile)
+  use_img_cond: False          # also feed UNI feature directly into DiT condition (label_embed)
+  prior_hidden: 512
+  sigma_data: 1.0              # ~std of the residual x - mu in log2 space
+  log_lib_init: 8.0            # ~log(median total counts per spot)
+
+train_config:
+  batch_size: 1
+  epochs: 2000
+  lr: 0.0003
+  wd: 0.01
+  grad_clip: 1.0
+  result_dir: /path/to/output_dir
+  patience: 20
+  eval_interval: 10
+  gradient_accumulate_every: 16
+  val_num_batches: -1          # -1: evaluate on all validation tiles (more stable early stopping)
+  val_steps: 20
+  proto_loss:
+    lambda_align: 0.5          # GFM/REPA alignment (FLAG)
+    lambda_prior: 1.0          # NB likelihood of counts under the prior mean
+    prior_loss: nb             # nb | mse
+    lambda_comp: 1.0           # KL(W_deconv || w_hat)
+    lambda_lib: 0.1
+    lambda_proto: 1.0
+
+test_config:
+  ckpt: best.pt
+  sample_num: 8
+  steps: 100
+  # t_start: 0.6               # optional: start from the prior at an intermediate noise level (fewer steps)
+  mode: 'eval'
